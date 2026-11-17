@@ -27,6 +27,12 @@
     @keyframes pop { 0% { transform: scale(.5); opacity: 0 } 100% { transform: scale(1); opacity: 1 } }
     .pop { animation: pop .25s ease-out both; }
     @media (prefers-reduced-motion: reduce) { .float-up, .slam, .pop, .confetti { animation-duration: .01s; } }
+    .floor { background: repeating-linear-gradient(90deg, #86582f 0 58px, #6f4825 58px 60px); box-shadow: inset 0 0 90px rgba(0,0,0,.5); }
+    .wall { background: linear-gradient(#4a3326, #35241b); border: 3px solid #2b1a12; }
+    .tabletop { background: linear-gradient(#8a5630, #6a4023); border: 4px solid #3b2519; box-shadow: 0 8px 0 #2b1a12, 0 14px 14px rgba(0,0,0,.5); }
+    .chair { background: linear-gradient(#6b3f25, #4b2c19); border: 3px solid #2b1a12; border-radius: 26px 26px 10px 10px; }
+    .spot { box-shadow: 0 0 0 4px #c9a24b, 0 0 40px 10px rgba(201,162,75,.55); background: rgba(255,230,160,.12); }
+    .rail { border-right: 6px double #c9a24b; }
   </style>
 </head>
 <body>
