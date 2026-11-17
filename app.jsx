@@ -1,7 +1,7 @@
 const { useEffect, useMemo, useRef, useState } = React
 
 const REACTS = [['👏', 'Alkış'], ['✋', 'İtiraz!'], ['🎯', 'Sapladı!'], ['👎', 'Yuh!'], ['🤔', 'Şüpheli']]
-const ROLES = { judge: 'Hakim', left: 'Savunma', right: 'Yargılayan' }
+const ROLES = { judge: 'Hakim', left: 'Savunma', right: 'Davacı' }
 const PREFIX = 'mahkeme-salonu-'
 
 /* ---------- Ağ katmanı: oda kurucusu sunucu görevi görür (WebRTC / PeerJS) ---------- */
@@ -121,7 +121,7 @@ const ghostBtn = `${btn} bg-black/30 border border-white/20 hover:bg-black/50`
 
 function Avatar({ i, cls = 'h-24' }) {
   const src = window.AVATARS[i % window.AVATARS.length]
-  return <img src={src} alt="" draggable={false} className={`${cls} w-auto rounded-md bg-black select-none`} />
+  return <img src={src} alt="" draggable={false} className={`${cls} w-auto max-w-none select-none`} />
 }
 
 function Confetti({ colors }) {
@@ -263,6 +263,21 @@ function Landing({ onCreate, onJoin, err, busy }) {
 }
 
 /* ---------- Oda ---------- */
+const fmt = t => `${Math.floor(t / 60)}:${String(Math.max(0, t) % 60).padStart(2, '0')}`
+
+function Flag() {
+  return (
+    <div className="flex flex-col items-center" aria-hidden="true">
+      <div className="relative w-14 h-9 bg-[#d3202f] rounded-sm overflow-hidden shadow">
+        <div className="absolute left-[10px] top-[6px] w-6 h-6 rounded-full bg-white" />
+        <div className="absolute left-[15px] top-[7px] w-5 h-5 rounded-full bg-[#d3202f]" />
+        <div className="absolute left-[33px] top-[10px] text-white text-[13px] leading-none">★</div>
+      </div>
+      <div className="w-1.5 h-12 rounded bg-brass" />
+    </div>
+  )
+}
+
 function Room({ st, off, onLeave, mute, toggleMute }) {
   const me = PID
   const now = useClock(off)
@@ -273,6 +288,7 @@ function Room({ st, off, onLeave, mute, toggleMute }) {
   const [myVote, setMyVote] = useState(null)
   const [cool, setCool] = useState(false)
   const [msg, setMsg] = useState('')
+  const [dur, setDur] = useState(60)
   const chatEnd = useRef(null)
 
   const send = (ev, d) => emit(ev, d)
@@ -282,9 +298,13 @@ function Room({ st, off, onLeave, mute, toggleMute }) {
   const isMod = isJudge || st.host === me
   const seated = Object.values(st.seats)
   const spectators = st.players.filter(p => !seated.includes(p.id))
+  const SLOTS = 12
+  const jurors = spectators.slice(0, SLOTS)
+  const gallery = spectators.slice(SLOTS)
   const lobby = st.phase === 'lobby'
   const full = seated.every(Boolean)
-  const cur = st.phase === 'hearing' ? st.plan[st.turn] : null
+  const hearing = st.phase === 'hearing'
+  const speaker = hearing ? st.speaker : null
   const base = location.href.split('?')[0].split('#')[0]
   const link = `${base}?oda=${st.code}`
 
@@ -295,51 +315,23 @@ function Room({ st, off, onLeave, mute, toggleMute }) {
   const react = e => { if (cool) return; send('react', e); setCool(true); setTimeout(() => setCool(false), 2000) }
   const randomTopic = () => emit('randomTopic', null, t => setTopicText(t))
 
-  const seat = (role, lg) => {
+  const person = (role, box, img) => {
     const p = byId[st.seats[role]]
     return (
-      <div className="text-center">
-        <div className={`chair mx-auto grid place-items-end justify-center overflow-hidden ${lg ? 'w-24 h-36' : 'w-20 h-32'}`}>
-          {p ? <Avatar i={p.avatar} cls={lg ? 'h-[8.25rem]' : 'h-[7.25rem]'} /> : <span className="self-center text-xs opacity-50">boş koltuk</span>}
-        </div>
-        {p && (
-          <div className="mt-1 font-bold truncate max-w-[10rem] mx-auto">{p.name}{p.id === me && ' (sen)'}
-            {!p.connected && <span className="block text-xs opacity-70 font-normal">bağlantı koptu…</span>}</div>
-        )}
-        {!p && <button disabled={!lobby} onClick={() => send('seat', role)} className={`${ghostBtn} mt-1 text-sm`}>Otur</button>}
-        {p && lobby && p.id === me && <button onClick={() => send('unseat')} className={`${ghostBtn} mt-1 text-xs py-1`}>Kalk</button>}
+      <div className={`relative flex justify-center items-start overflow-hidden ${box}`}>
+        {p ? <Avatar i={p.avatar} cls={img} /> : <div className="self-end mb-12 text-xs opacity-60">boş koltuk</div>}
       </div>
     )
   }
-
-  const talkBox = role => {
-    const active = cur && cur.side === role
-    if (active) return (
-      <div className="text-center">
-        <div className="font-bold">{mine === role ? 'Sıra sende, konuş!' : 'Konuşuyor…'}</div>
-        <div className="flex justify-center items-end gap-1 h-6 mt-1" aria-hidden="true">
-          {[0, 1, 2, 3, 4].map(i => <span key={i} className="w-1.5 rounded bg-felt animate-pulse" style={{ height: `${8 + (i % 3) * 7}px`, animationDelay: `${i * 120}ms` }} />)}
-        </div>
-      </div>
-    )
-    return <div className="text-center opacity-60">{st.phase === 'hearing' ? 'Sırasını bekliyor' : 'Susuyor'}</div>
+  const seatBtn = role => {
+    const p = byId[st.seats[role]]
+    if (!p) return <button disabled={!lobby} onClick={() => send('seat', role)} className={`${ghostBtn} mt-1 text-sm py-1`}>Otur</button>
+    if (lobby && p.id === me) return <button onClick={() => send('unseat')} className={`${ghostBtn} mt-1 text-xs py-1`}>Kalk</button>
+    return null
   }
-
-  const desk = role => {
-    const left = role === 'left'
-    const active = cur && cur.side === role
-    const won = st.winner === role
-    return (
-      <div className={`rounded-2xl p-2 ${active ? 'spot' : ''} ${won ? 'ring-4 ring-yellow-300' : ''}`}>
-        <div className="bg-paper text-ink rounded-2xl p-2 min-h-[64px] grid place-items-center text-sm">{talkBox(role)}</div>
-        <div className="mx-auto h-3 w-6 bg-paper" style={{ clipPath: 'polygon(0 0, 100% 0, 50% 100%)' }} />
-        <div className="mt-1">{seat(role)}</div>
-        <div className="tabletop rounded-lg mt-2 px-3 py-2 text-center">
-          <div className={`rounded px-2 py-1 font-slab ${left ? 'bg-felt' : 'bg-oxblood'}`}>{ROLES[role]}</div>
-          <div className="text-xs opacity-80 mt-1">{left ? 'Fikri destekliyor' : 'Fikre karşı çıkıyor'} 📄</div>
-        </div>
-      </div>
-    )
+  const nameOf = role => {
+    const p = byId[st.seats[role]]
+    return p ? `${p.name}${p.id === me ? ' (sen)' : ''}` : 'Boş'
   }
 
   const judgeControls = () => {
@@ -358,19 +350,29 @@ function Room({ st, off, onLeave, mute, toggleMute }) {
             </div>
           </div>
         )}
-        {st.phase === 'hearing' && (
-          <div className="grid grid-cols-2 gap-2">
-            <button onClick={() => send('objection', 'accept')} className={`${btn} bg-felt border border-green-300/50`}>İtiraz kabul</button>
-            <button onClick={() => send('objection', 'reject')} className={`${btn} bg-oxblood border border-red-300/50`}>İtiraz red</button>
-            <button onClick={() => send('addTime')} className={ghostBtn}>+15 saniye</button>
-            <button onClick={() => send('skip')} className={ghostBtn}>Sırayı geç</button>
-            <button onClick={() => send('toVote')} className={`${brassBtn} col-span-2`}>Turu bitir, oylamaya geç</button>
+        {hearing && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-1 text-sm">
+              <span className="opacity-80 mr-1">Söz süresi:</span>
+              {[30, 60, 90].map(d => (
+                <button key={d} onClick={() => setDur(d)} className={`${btn} py-1 px-2 ${dur === d ? 'bg-brass text-ink' : 'bg-black/30 border border-white/20'}`}>{d} sn</button>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => send('floor', { side: 'left', dur })} className={`${btn} bg-felt border border-green-300/50`}>Söz ver: Savunma</button>
+              <button onClick={() => send('floor', { side: 'right', dur })} className={`${btn} bg-oxblood border border-red-300/50`}>Söz ver: Davacı</button>
+              <button disabled={!speaker} onClick={() => send('takeFloor')} className={ghostBtn}>Sözü al</button>
+              <button disabled={!speaker} onClick={() => send('addTime')} className={ghostBtn}>+15 saniye</button>
+              <button onClick={() => send('objection', 'accept')} className={`${btn} bg-felt border border-green-300/50`}>İtiraz kabul</button>
+              <button onClick={() => send('objection', 'reject')} className={`${btn} bg-oxblood border border-red-300/50`}>İtiraz red</button>
+              <button onClick={() => send('toVote')} className={`${brassBtn} col-span-2`}>Dinlemeyi bitir, oylamaya geç</button>
+            </div>
           </div>
         )}
         {st.phase === 'deliberate' && (
           <div className="grid grid-cols-2 gap-2">
-            <button onClick={() => send('decide', 'left')} className={`${btn} bg-felt border border-green-300/50`}>Savunma kazandı</button>
-            <button onClick={() => send('decide', 'right')} className={`${btn} bg-oxblood border border-red-300/50`}>Yargılayan kazandı</button>
+            <button onClick={() => send('decide', 'left')} className={`${btn} bg-felt border border-green-300/50`}>{ROLES.left} kazandı</button>
+            <button onClick={() => send('decide', 'right')} className={`${btn} bg-oxblood border border-red-300/50`}>{ROLES.right} kazandı</button>
           </div>
         )}
         {st.phase === 'verdict' && <button onClick={() => send('next')} className={`${brassBtn} w-full`}>Yeni dava (koltukları değiştir)</button>}
@@ -389,22 +391,31 @@ function Room({ st, off, onLeave, mute, toggleMute }) {
   }
 
   const center = () => {
-    const box = 'rounded-xl bg-ink/70 border border-brass/50 p-4 text-center'
+    const box = 'rounded-xl bg-ink/75 border border-brass/50 p-4 text-center'
     if (lobby) return (
       <div className={box}>
         <div className="font-slab text-xl text-brass">Lobi</div>
-        <p className="mt-2 text-sm opacity-85">{full ? 'Koltuklar dolu. Hakim duruşmayı başlatabilir.' : 'Üç koltuğa da oyuncu oturunca Hakim duruşmayı başlatır.'}</p>
-        <p className="mt-1 text-xs opacity-60">Sesli oyun: Discord veya yayında konuşun, süre ve sırayı burası tutar.</p>
+        <p className="mt-2 text-sm opacity-85">{full ? 'Koltuklar dolu. Hakim duruşmayı başlatabilir.' : 'Hakim, Savunma ve Davacı koltukları dolunca Hakim duruşmayı başlatır.'}</p>
+        <p className="mt-1 text-xs opacity-60">Sesli oyun: Discord veya yayında konuşun, söz sırasını ve süreyi burası tutar.</p>
       </div>
     )
     if (st.phase === 'topic') return <div className={box}><div className="font-slab text-xl text-brass">Hakim dava konusunu belirliyor…</div></div>
-    if (st.phase === 'hearing') {
+    if (hearing) {
       const left = secs(st.turnEnd, now)
       return (
         <div className={box}>
-          <div className="text-sm opacity-80">{cur.title}</div>
-          <div className={`font-slab text-7xl my-1 ${left <= 10 ? 'text-red-400' : 'text-brass'}`}>{left}</div>
-          <div className="text-xs opacity-60">saniye · sıra {cur.side === 'left' ? 'Savunma' : 'Yargılayan'}’da</div>
+          {speaker ? (
+            <>
+              <div className="text-sm opacity-80">Söz hakkı: {ROLES[speaker]} · {nameOf(speaker)}</div>
+              <div className={`font-slab text-7xl my-1 ${left <= 10 ? 'text-red-400' : 'text-brass'}`}>{left}</div>
+              <div className="text-xs opacity-60">saniye kaldı</div>
+            </>
+          ) : (
+            <>
+              <div className="font-slab text-xl text-brass">Söz bekleniyor</div>
+              <p className="text-sm mt-2 opacity-85">Hakim söz hakkını verecek.</p>
+            </>
+          )}
         </div>
       )
     }
@@ -437,45 +448,49 @@ function Room({ st, off, onLeave, mute, toggleMute }) {
     )
   }
 
-  const SLOTS = 12
-  const judgeBench = (
-    <div className="max-w-2xl mx-auto">
-      <div className="text-center text-5xl leading-none mb-1">⚖️</div>
-      <div className="relative z-10 -mb-5">{seat('judge', true)}</div>
-      <div className="bench-judge rounded-xl px-4 pt-12 pb-3" style={{ boxShadow: '0 10px 0 #2b1a12, 0 18px 24px rgba(0,0,0,.5)' }}>
-        <div className="flex items-center justify-between">
-          <span className="font-slab text-xl text-brass">Hakim kürsüsü</span><span className="text-3xl">🔨</span>
+  /* --- Salon parçaları --- */
+  const desk = role => {
+    const left = role === 'left'
+    const active = hearing && speaker === role
+    const won = st.winner === role
+    const live = active ? Math.max(0, Math.floor((Math.min(now, st.turnEnd) - st.floorStart) / 1000)) : 0
+    const spoke = ((st.spoke && st.spoke[role]) || 0) + live
+    return (
+      <div className={`rounded-2xl p-2 ${active ? 'spot' : ''} ${won ? 'ring-4 ring-yellow-300' : ''}`}>
+        <div className="h-8 flex justify-center items-end">
+          {active && (
+            <div className="pop flex items-end gap-1 rounded-full bg-paper text-ink px-3 py-1 text-xs font-bold" aria-label="Konuşuyor">
+              {mine === role ? 'Sıra sende, konuş!' : 'Konuşuyor'}
+              {[0, 1, 2].map(i => <span key={i} className="w-1 rounded bg-felt animate-pulse" style={{ height: `${6 + i * 3}px`, animationDelay: `${i * 130}ms` }} />)}
+            </div>
+          )}
         </div>
-        {judgeControls()}
+        {person(role, 'h-36', 'h-56')}
+        <div className="tabletop -mt-10 relative z-10 rounded-lg px-2 pt-2 pb-2 text-center">
+          <div className={`rounded px-2 py-0.5 font-slab ${left ? 'bg-felt' : 'bg-oxblood'}`}>{ROLES[role]}</div>
+          <div className="text-sm font-bold truncate mt-1">{nameOf(role)}</div>
+          <div className="text-xs opacity-80">{left ? 'Fikri savunuyor' : 'Fikre karşı çıkıyor'}</div>
+          <div className="text-xs mt-0.5">Konuştu: {fmt(spoke)}</div>
+          {seatBtn(role)}
+        </div>
       </div>
-      <div className="mx-auto mt-3 h-3 w-[94%] rounded-b bg-[#2b1a12]/70" />
-      <div className="mx-auto h-3 w-[98%] rounded-b bg-[#2b1a12]/45" />
-    </div>
+    )
+  }
+
+  const juror = (p, cls) => (
+    <button key={p.id} disabled={!(isMod && lobby)} onClick={() => setPick(pick === p.id ? null : p.id)} title={p.name}
+      className={`relative overflow-hidden rounded-t-xl bg-[#3a2418] border-2 border-[#1c120d] h-[4.75rem] ${cls} ${p.connected ? '' : 'opacity-40'} ${pick === p.id ? 'ring-2 ring-brass' : ''}`}>
+      <div className="flex justify-center"><Avatar i={p.avatar} cls="h-28" /></div>
+      <div className="absolute inset-x-0 bottom-0 bg-[#5a3522] border-t-2 border-brass/60 text-[11px] truncate px-1 py-0.5">{p.name}{p.id === me && ' (sen)'}</div>
+    </button>
   )
-  const juryBox = (
-    <div className="rail rounded-xl bg-[#2b1a12]/85 border-4 border-[#3b2519] p-2 order-last md:order-first self-start">
-      <div className="font-slab text-lg text-brass text-center">Jüri locası</div>
-      <div className="text-xs text-center opacity-70 mb-2">{spectators.length} kişi</div>
-      <div className="grid grid-cols-3 md:grid-cols-2 gap-2">
-        {Array.from({ length: SLOTS }, (_, i) => spectators[i]).map((p, i) => p ? (
-          <button key={p.id} disabled={!(isMod && lobby)} onClick={() => setPick(pick === p.id ? null : p.id)} title={p.name}
-            className={`chair p-1 text-center ${p.connected ? '' : 'opacity-40'} ${pick === p.id ? 'ring-2 ring-brass' : ''}`}>
-            <div className="flex justify-center"><Avatar i={p.avatar} cls="h-16" /></div>
-            <div className="text-[11px] truncate">{p.name}{p.id === me && ' (sen)'}</div>
-          </button>
-        ) : (
-          <div key={'e' + i} className="chair p-1 text-center opacity-25 grid place-items-center h-[5.5rem]"><div className="text-[11px]">boş</div></div>
-        ))}
-      </div>
-      {spectators.length > SLOTS && <div className="text-xs text-center mt-2 opacity-80">+{spectators.length - SLOTS} izleyici daha</div>}
-      {pick && isMod && lobby && (
-        <div className="pop mt-3 text-sm space-y-1">
-          <div className="text-center">{byId[pick] && byId[pick].name} için koltuk:</div>
-          {Object.keys(ROLES).map(r => (
-            <button key={r} onClick={() => { send('assign', { pid: pick, role: r }); setPick(null) }} className={`${ghostBtn} w-full py-1`}>{ROLES[r]}</button>
-          ))}
-        </div>
-      )}
+
+  const assignPopup = pick && isMod && lobby && (
+    <div className="pop mt-3 text-sm space-y-1">
+      <div className="text-center">{byId[pick] && byId[pick].name} için koltuk:</div>
+      {Object.keys(ROLES).map(r => (
+        <button key={r} onClick={() => { send('assign', { pid: pick, role: r }); setPick(null) }} className={`${ghostBtn} w-full py-1`}>{ROLES[r]}</button>
+      ))}
     </div>
   )
 
@@ -501,11 +516,54 @@ function Room({ st, off, onLeave, mute, toggleMute }) {
       <main className="flex-1 grid lg:grid-cols-[1fr_320px] gap-3 p-3">
         <section className="min-w-0 space-y-3">
           <div className="rounded-2xl border-[10px] border-[#3b2519] overflow-hidden shadow-2xl">
+            {/* Arka duvar */}
+            <div className="wall px-4 pt-3 pb-2 flex items-start justify-between gap-2">
+              <Flag />
+              <div className="text-center pt-1">
+                <div className="text-4xl leading-none">⚖️</div>
+                <div className="font-slab text-sm md:text-base tracking-wide text-brass mt-1">ADALET MÜLKÜN TEMELİDİR</div>
+              </div>
+              <Flag />
+            </div>
+
             <div className="floor p-3">
-              <div className="grid md:grid-cols-[190px_1fr] gap-4">
-                {juryBox}
-                <div className="space-y-6 min-w-0">
-                  <div className="wall rounded-xl p-3 pb-0">{judgeBench}</div>
+              <div className="grid md:grid-cols-[200px_1fr] gap-4">
+                {/* Jüri locası (solda) */}
+                <div className="rail rounded-xl bg-[#2b1a12]/85 border-4 border-[#3b2519] p-2 order-last md:order-first self-start">
+                  <div className="font-slab text-lg text-brass text-center">Jüri locası</div>
+                  <div className="text-xs text-center opacity-70 mb-2">{spectators.length} kişi</div>
+                  <div className="grid grid-cols-4 md:grid-cols-2 gap-x-2 gap-y-2">
+                    {Array.from({ length: SLOTS }, (_, i) => jurors[i]).map((p, i) => p
+                      ? juror(p, '')
+                      : <div key={'e' + i} className="rounded-t-xl border-2 border-dashed border-white/15 h-[4.75rem] grid place-items-center text-[11px] opacity-40">boş</div>)}
+                  </div>
+                  {assignPopup}
+                </div>
+
+                <div className="space-y-5 min-w-0">
+                  {/* Hakim kürsüsü */}
+                  <div className="max-w-xl mx-auto">
+                    <div className="relative mx-auto w-52">
+                      <div className="backrest absolute inset-x-2 top-4 bottom-0 rounded-t-[48px]" />
+                      {person('judge', 'h-44 pt-4', 'h-64')}
+                    </div>
+                    <div className="bench-judge -mt-14 relative z-10 rounded-t-xl px-4 pt-3 pb-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="rounded bg-brass text-ink px-3 py-0.5 font-slab text-sm truncate">HAKİM · {nameOf('judge')}</div>
+                        <div className="small-wood rounded px-2 py-1 text-lg" title="Tokmak ve altlığı">🔨</div>
+                      </div>
+                      <div className="text-center">{seatBtn('judge')}</div>
+                      {judgeControls()}
+                    </div>
+                    <div className="mx-auto h-3 w-[96%] bg-[#2b1a12]/80" />
+                    <div className="mx-auto h-3 w-full bg-[#2b1a12]/55 rounded-b" />
+                    <div className="flex justify-between items-end mt-3 px-1 text-[11px] text-center">
+                      <div className="small-wood rounded-md px-3 py-2 opacity-90">Zabıt katibi masası</div>
+                      <div className="small-wood rounded-t-3xl rounded-b-md px-3 py-3 opacity-90">Tanık kürsüsü</div>
+                    </div>
+                  </div>
+
+                  {/* Duruşma alanı */}
                   <div className="grid md:grid-cols-[1fr_minmax(190px,250px)_1fr] gap-3 items-end">
                     {desk('left')}
                     <div className="order-first md:order-none">{center()}</div>
@@ -513,11 +571,24 @@ function Room({ st, off, onLeave, mute, toggleMute }) {
                   </div>
                 </div>
               </div>
+
+              {/* Bölme ve seyirci sıraları */}
+              <div className="mt-5">
+                <div className="flex gap-2 items-center"><div className="railbar flex-1" /><span className="text-[11px] opacity-70">kapı</span><div className="railbar flex-1" /></div>
+                <div className="bg-[#2b1a12]/70 rounded-b-xl p-2">
+                  <div className="text-xs text-center opacity-70 mb-2">Seyirci sıraları ({gallery.length})</div>
+                  <div className="flex flex-wrap gap-2 justify-center">
+                    {gallery.map(p => juror(p, 'w-20'))}
+                    {!gallery.length && <div className="text-xs opacity-50 py-2">Jüri locası dolunca fazla gelenler buraya oturur.</div>}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
+
           {!mine && (
             <div className="rounded-xl bg-ink/70 border border-white/15 p-3">
-              <div className="font-semibold mb-2">Jüri tepkileri</div>
+              <div className="font-semibold mb-2">Tepkiler</div>
               <div className="flex flex-wrap gap-2">
                 {REACTS.map(([e, l]) => (
                   <button key={e} disabled={cool} onClick={() => react(e)} className={`${ghostBtn} text-sm`}><span className="text-lg mr-1">{e}</span>{l}</button>
@@ -537,7 +608,7 @@ function Room({ st, off, onLeave, mute, toggleMute }) {
           <div className="rounded-xl bg-ink/70 border border-white/15 p-3 flex flex-col h-[340px] lg:h-[420px]">
             <div className="font-semibold mb-2">Canlı sohbet</div>
             <div className="flex-1 overflow-auto space-y-1 text-sm">
-              {st.chat.map(m => <div key={m.id}><span className="inline-block align-middle mr-1"><Avatar i={m.avatar} cls="h-6" /></span><b>{m.name}:</b> <span className="break-words">{m.text}</span></div>)}
+              {st.chat.map(m => <div key={m.id}><span className="inline-block align-middle mr-1 h-6 w-4 overflow-hidden"><Avatar i={m.avatar} cls="h-12" /></span><b>{m.name}:</b> <span className="break-words">{m.text}</span></div>)}
               <div ref={chatEnd} />
             </div>
             <form className="flex gap-2 mt-2" onSubmit={e => { e.preventDefault(); if (msg.trim()) { send('chat', msg); setMsg('') } }}>

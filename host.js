@@ -20,12 +20,6 @@
     'Robotlar bulaşıkları yıkarsa insan daha mutlu olur mu?', '“Bir tur daha” demek bağımlılık mı, azim mi?',
     'Bir kıyafeti sadece bir kez giymek israf mıdır?'
   ]
-  const PLAN = [
-    { side: 'left', dur: 60, title: '1. Tur · Açılış: Savunma' },
-    { side: 'right', dur: 60, title: '1. Tur · Açılış: Yargılayan' },
-    { side: 'left', dur: 45, title: '2. Tur · Karşı atak: Savunma' },
-    { side: 'right', dur: 45, title: '2. Tur · Karşı atak: Yargılayan' }
-  ]
   const AV_COUNT = 16
   const EMOJIS = ['👏', '✋', '🎯', '👎', '🤔']
   const now = () => Date.now()
@@ -37,7 +31,7 @@
     constructor(code, hostPid) {
       this.r = {
         code, host: hostPid, players: {}, seats: { judge: null, left: null, right: null }, phase: 'lobby',
-        topic: '', turn: 0, turnEnd: 0, voteEnd: 0, votes: {}, winner: null,
+        topic: '', speaker: null, floorStart: 0, spoke: { left: 0, right: 0 }, turnEnd: 0, voteEnd: 0, votes: {}, winner: null,
         scores: {}, chat: [], react: {}
       }
       this.iv = setInterval(() => this.tick(), 500)
@@ -52,7 +46,7 @@
       Object.values(r.votes).forEach(v => t[v]++)
       return {
         code: r.code, host: r.host, seats: r.seats, phase: r.phase, topic: r.topic,
-        turn: r.turn, turnEnd: r.turnEnd, plan: PLAN, voteEnd: r.voteEnd,
+        speaker: r.speaker, floorStart: r.floorStart, spoke: r.spoke, turnEnd: r.turnEnd, voteEnd: r.voteEnd,
         voted: Object.keys(r.votes).length, jury: this.jury().length, tally: done ? t : null, winner: r.winner,
         players: Object.values(r.players).map(({ id, name, avatar, connected }) => ({ id, name, avatar, connected })),
         scores: Object.values(r.scores), chat: r.chat, now: now()
@@ -98,20 +92,22 @@
       const s = r.scores[pid] || { id: pid, points: 0 }
       r.scores[pid] = { ...s, name: r.players[pid].name, points: s.points + n }
     }
+    stopFloor() {
+      const r = this.r
+      if (!r.speaker) return
+      const el = Math.max(0, Math.min(now(), r.turnEnd) - r.floorStart)
+      r.spoke[r.speaker] += Math.round(el / 1000)
+      r.speaker = null
+    }
     startVoting() {
       const r = this.r
+      this.stopFloor()
       r.phase = 'voting'; r.votes = {}; r.voteEnd = now() + 15000
       if (!this.jury().length) r.phase = 'deliberate'
     }
-    advance() {
-      const r = this.r
-      r.turn++
-      if (r.turn >= PLAN.length) this.startVoting()
-      else r.turnEnd = now() + PLAN[r.turn].dur * 1000
-    }
     tick() {
       const r = this.r
-      if (r.phase === 'hearing' && now() >= r.turnEnd) { this.fx({ kind: 'timeup' }); this.advance(); this.push() }
+      if (r.phase === 'hearing' && r.speaker && now() >= r.turnEnd) { this.fx({ kind: 'timeup' }); this.stopFloor(); this.push() }
       else if (r.phase === 'voting' && (now() >= r.voteEnd || Object.keys(r.votes).length >= this.jury().length)) { r.phase = 'deliberate'; this.push() }
     }
 
@@ -139,11 +135,16 @@
         case 'topic': {
           const t = clean(d, 140)
           if (!isJ || r.phase !== 'topic' || !t) return
-          r.topic = t; r.phase = 'hearing'; r.turn = 0; r.turnEnd = now() + PLAN[0].dur * 1000
-          r.winner = null; break
+          r.topic = t; r.phase = 'hearing'; r.speaker = null; r.spoke = { left: 0, right: 0 }; r.winner = null; break
         }
-        case 'skip': if (isJ && r.phase === 'hearing') this.advance(); break
-        case 'addTime': if (isJ && r.phase === 'hearing') r.turnEnd += 15000; break
+        case 'floor': {
+          if (!isJ || r.phase !== 'hearing' || !d || (d.side !== 'left' && d.side !== 'right')) return
+          const dur = Math.min(180, Math.max(10, Number(d.dur) || 60))
+          this.stopFloor()
+          r.speaker = d.side; r.floorStart = now(); r.turnEnd = now() + dur * 1000; break
+        }
+        case 'takeFloor': if (isJ && r.phase === 'hearing') this.stopFloor(); break
+        case 'addTime': if (isJ && r.phase === 'hearing' && r.speaker) r.turnEnd += 15000; break
         case 'toVote': if (isJ && r.phase === 'hearing') this.startVoting(); break
         case 'objection':
           if (isJ && r.phase === 'hearing') this.fx({ kind: 'objection', type: d === 'accept' ? 'accept' : 'reject' })
