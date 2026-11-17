@@ -4,7 +4,7 @@ Sunucusuz çalışır: oda kurucusunun tarayıcısı oyun sunucusu olur, diğer 
 Derleme / npm gerekmez.
 
 ## GitHub Pages'te yayınlama
-1. Bu klasördeki dosyaları (`index.html`, `app.jsx`, `host.js`) reponun **ana dizinine** yükle.
+1. Bu klasördeki dosyaları (`index.html`, `app.jsx`, `host.js`, `avatars.js`) reponun **ana dizinine** yükle.
 2. Repo → Settings → Pages → Source: **Deploy from a branch**, Branch: `main`, Folder: `/ (root)` → Save.
 3. 1-2 dakika sonra `https://KULLANICI.github.io/REPO/` adresinde yayında olur.
 

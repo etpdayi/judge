@@ -119,6 +119,11 @@ const btn = 'rounded-lg px-3 py-2 font-semibold transition focus-visible:outline
 const brassBtn = `${btn} bg-brass text-ink hover:brightness-110`
 const ghostBtn = `${btn} bg-black/30 border border-white/20 hover:bg-black/50`
 
+function Avatar({ i, cls = 'h-24' }) {
+  const src = window.AVATARS[i % window.AVATARS.length]
+  return <img src={src} alt="" draggable={false} className={`${cls} w-auto rounded-md bg-black select-none`} />
+}
+
 function Confetti({ colors }) {
   const pieces = useMemo(() => Array.from({ length: 70 }, (_, i) => ({
     left: Math.random() * 100, delay: Math.random() * 1.2, dur: 2.5 + Math.random() * 2, bg: colors[i % colors.length]
@@ -134,7 +139,6 @@ function App() {
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [off, setOff] = useState(0)
-  const [args, setArgs] = useState({ left: '', right: '' })
   const [floats, setFloats] = useState([])
   const [slam, setSlam] = useState(false)
   const [obj, setObj] = useState(null)
@@ -158,8 +162,7 @@ function App() {
     const unlock = () => { try { ac().resume() } catch (e) { /* yok say */ } }
     window.addEventListener('pointerdown', unlock, { once: true })
     net.h = {
-      state: s => { setSt(s); setOff(s.now - Date.now()); setArgs(s.args) },
-      arg: a => { if (a.from !== PID) setArgs(p => ({ ...p, [a.side]: a.text })) },
+      state: s => { setSt(s); setOff(s.now - Date.now()) },
       fx: f => {
         if (f.kind === 'gavel') { sfx.gavel(); setSlam(true); setTimeout(() => setSlam(false), 4500) }
         else if (f.kind === 'objection') {
@@ -186,7 +189,7 @@ function App() {
   return (
     <div className="wood min-h-screen font-sans">
       {st
-        ? <Room st={st} args={args} setArgs={setArgs} off={off} onLeave={leave} mute={mute} toggleMute={toggleMute} />
+        ? <Room st={st} off={off} onLeave={leave} mute={mute} toggleMute={toggleMute} />
         : <Landing onCreate={create} onJoin={join} err={err} busy={busy} />}
 
       <div className="pointer-events-none fixed inset-0 z-40 overflow-hidden">
@@ -213,13 +216,15 @@ function App() {
 
 function Slam({ st }) {
   const w = st.winner
-  const name = (st.players.find(p => p.id === st.seats[w]) || {}).name || ROLES[w]
+  const winner = st.players.find(p => p.id === st.seats[w])
+  const name = (winner || {}).name || ROLES[w]
   const colors = useMemo(() => w === 'left' ? ['#2f9e63', '#c9a24b', '#efe5cf'] : ['#c4313f', '#c9a24b', '#efe5cf'], [w])
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/75">
       <Confetti colors={colors} />
       <div className="text-center px-4">
-        <div className="slam text-[120px] leading-none">🔨</div>
+        <div className="slam text-[90px] leading-none">🔨</div>
+        {winner && <div className="flex justify-center mt-2"><Avatar i={winner.avatar} cls="h-40" /></div>}
         <div className="font-slab text-4xl md:text-7xl mt-4 text-brass">DAVA SONUÇLANDI!</div>
         <div className="font-slab text-2xl md:text-4xl mt-3">{ROLES[w]} taraf kazandı</div>
         <div className="text-xl mt-2 opacity-90">{name}</div>
@@ -258,7 +263,7 @@ function Landing({ onCreate, onJoin, err, busy }) {
 }
 
 /* ---------- Oda ---------- */
-function Room({ st, args, setArgs, off, onLeave, mute, toggleMute }) {
+function Room({ st, off, onLeave, mute, toggleMute }) {
   const me = PID
   const now = useClock(off)
   const [hide, setHide] = useState(false)
@@ -294,8 +299,8 @@ function Room({ st, args, setArgs, off, onLeave, mute, toggleMute }) {
     const p = byId[st.seats[role]]
     return (
       <div className="text-center">
-        <div className={`chair mx-auto grid place-items-center ${lg ? 'w-28 h-28' : 'w-20 h-20'}`}>
-          {p ? <span className={lg ? 'text-6xl' : 'text-4xl'}>{p.avatar}</span> : <span className="text-3xl opacity-40">🪑</span>}
+        <div className={`chair mx-auto grid place-items-end justify-center overflow-hidden ${lg ? 'w-24 h-36' : 'w-20 h-32'}`}>
+          {p ? <Avatar i={p.avatar} cls={lg ? 'h-[8.25rem]' : 'h-[7.25rem]'} /> : <span className="self-center text-xs opacity-50">boş koltuk</span>}
         </div>
         {p && (
           <div className="mt-1 font-bold truncate max-w-[10rem] mx-auto">{p.name}{p.id === me && ' (sen)'}
@@ -307,16 +312,17 @@ function Room({ st, args, setArgs, off, onLeave, mute, toggleMute }) {
     )
   }
 
-  const argBox = role => {
+  const talkBox = role => {
     const active = cur && cur.side === role
-    const canType = active && mine === role && st.mode === 'written'
-    if (canType) return (
-      <textarea autoFocus value={args[role]} maxLength={1200}
-        onChange={e => { setArgs(a => ({ ...a, [role]: e.target.value })); send('arg', e.target.value) }}
-        className="w-full h-full min-h-[140px] rounded bg-paper text-ink p-2 text-sm outline-none focus:ring-2 focus:ring-brass" placeholder="Argümanını yaz…" />
+    if (active) return (
+      <div className="text-center">
+        <div className="font-bold">{mine === role ? 'Sıra sende, konuş!' : 'Konuşuyor…'}</div>
+        <div className="flex justify-center items-end gap-1 h-6 mt-1" aria-hidden="true">
+          {[0, 1, 2, 3, 4].map(i => <span key={i} className="w-1.5 rounded bg-felt animate-pulse" style={{ height: `${8 + (i % 3) * 7}px`, animationDelay: `${i * 120}ms` }} />)}
+        </div>
+      </div>
     )
-    if (args[role]) return <div className="text-sm whitespace-pre-wrap break-words">{args[role]}</div>
-    return <div className="text-sm opacity-60">{st.mode === 'voice' ? 'Sesli mod: konuşma sırası ve süre takip ediliyor.' : 'Henüz argüman yok.'}</div>
+    return <div className="text-center opacity-60">{st.phase === 'hearing' ? 'Sırasını bekliyor' : 'Susuyor'}</div>
   }
 
   const desk = role => {
@@ -325,7 +331,7 @@ function Room({ st, args, setArgs, off, onLeave, mute, toggleMute }) {
     const won = st.winner === role
     return (
       <div className={`rounded-2xl p-2 ${active ? 'spot' : ''} ${won ? 'ring-4 ring-yellow-300' : ''}`}>
-        <div className="bg-paper text-ink rounded-2xl p-2 min-h-[110px] max-h-56 overflow-auto text-sm">{argBox(role)}</div>
+        <div className="bg-paper text-ink rounded-2xl p-2 min-h-[64px] grid place-items-center text-sm">{talkBox(role)}</div>
         <div className="mx-auto h-3 w-6 bg-paper" style={{ clipPath: 'polygon(0 0, 100% 0, 50% 100%)' }} />
         <div className="mt-1">{seat(role)}</div>
         <div className="tabletop rounded-lg mt-2 px-3 py-2 text-center">
@@ -338,17 +344,9 @@ function Room({ st, args, setArgs, off, onLeave, mute, toggleMute }) {
 
   const judgeControls = () => {
     if (!isMod) return null
-    const mode = lobby && (
-      <div className="flex gap-2 mt-2">
-        {[['written', 'Yazılı mod'], ['voice', 'Sesli mod']].map(([m, l]) => (
-          <button key={m} onClick={() => send('mode', m)} className={`${btn} flex-1 text-sm ${st.mode === m ? 'bg-brass text-ink' : 'bg-black/30 border border-white/20'}`}>{l}</button>
-        ))}
-      </div>
-    )
-    if (!isJudge) return mode || (st.phase === 'verdict' && <button onClick={() => send('next')} className={`${brassBtn} w-full mt-2`}>Yeni dava (koltukları değiştir)</button>)
+    if (!isJudge) return st.phase === 'verdict' && <button onClick={() => send('next')} className={`${brassBtn} w-full mt-2`}>Yeni dava (koltukları değiştir)</button>
     return (
       <div className="mt-3 space-y-2">
-        {mode}
         {lobby && <button disabled={!full} onClick={() => send('start')} className={`${brassBtn} w-full`}>Duruşmayı başlat</button>}
         {st.phase === 'topic' && (
           <div className="space-y-2">
@@ -396,7 +394,7 @@ function Room({ st, args, setArgs, off, onLeave, mute, toggleMute }) {
       <div className={box}>
         <div className="font-slab text-xl text-brass">Lobi</div>
         <p className="mt-2 text-sm opacity-85">{full ? 'Koltuklar dolu. Hakim duruşmayı başlatabilir.' : 'Üç koltuğa da oyuncu oturunca Hakim duruşmayı başlatır.'}</p>
-        <p className="mt-1 text-xs opacity-60">Mod: {st.mode === 'written' ? 'Yazılı' : 'Sesli / yüz yüze'}</p>
+        <p className="mt-1 text-xs opacity-60">Sesli oyun: Discord veya yayında konuşun, süre ve sırayı burası tutar.</p>
       </div>
     )
     if (st.phase === 'topic') return <div className={box}><div className="font-slab text-xl text-brass">Hakim dava konusunu belirliyor…</div></div>
@@ -462,11 +460,11 @@ function Room({ st, args, setArgs, off, onLeave, mute, toggleMute }) {
         {Array.from({ length: SLOTS }, (_, i) => spectators[i]).map((p, i) => p ? (
           <button key={p.id} disabled={!(isMod && lobby)} onClick={() => setPick(pick === p.id ? null : p.id)} title={p.name}
             className={`chair p-1 text-center ${p.connected ? '' : 'opacity-40'} ${pick === p.id ? 'ring-2 ring-brass' : ''}`}>
-            <div className="text-3xl leading-none">{p.avatar}</div>
+            <div className="flex justify-center"><Avatar i={p.avatar} cls="h-16" /></div>
             <div className="text-[11px] truncate">{p.name}{p.id === me && ' (sen)'}</div>
           </button>
         ) : (
-          <div key={'e' + i} className="chair p-1 text-center opacity-25"><div className="text-3xl leading-none">🪑</div><div className="text-[11px]">boş</div></div>
+          <div key={'e' + i} className="chair p-1 text-center opacity-25 grid place-items-center h-[5.5rem]"><div className="text-[11px]">boş</div></div>
         ))}
       </div>
       {spectators.length > SLOTS && <div className="text-xs text-center mt-2 opacity-80">+{spectators.length - SLOTS} izleyici daha</div>}
@@ -539,7 +537,7 @@ function Room({ st, args, setArgs, off, onLeave, mute, toggleMute }) {
           <div className="rounded-xl bg-ink/70 border border-white/15 p-3 flex flex-col h-[340px] lg:h-[420px]">
             <div className="font-semibold mb-2">Canlı sohbet</div>
             <div className="flex-1 overflow-auto space-y-1 text-sm">
-              {st.chat.map(m => <div key={m.id}><span className="mr-1">{m.avatar}</span><b>{m.name}:</b> <span className="break-words">{m.text}</span></div>)}
+              {st.chat.map(m => <div key={m.id}><span className="inline-block align-middle mr-1"><Avatar i={m.avatar} cls="h-6" /></span><b>{m.name}:</b> <span className="break-words">{m.text}</span></div>)}
               <div ref={chatEnd} />
             </div>
             <form className="flex gap-2 mt-2" onSubmit={e => { e.preventDefault(); if (msg.trim()) { send('chat', msg); setMsg('') } }}>

@@ -26,7 +26,7 @@
     { side: 'left', dur: 45, title: '2. Tur · Karşı atak: Savunma' },
     { side: 'right', dur: 45, title: '2. Tur · Karşı atak: Yargılayan' }
   ]
-  const AV = ['🦊', '🐼', '🐸', '🦉', '🐙', '🦁', '🐯', '🐵', '🐧', '🦄', '🐢', '🦖', '🐳', '🦔', '🐝', '🦆']
+  const AV_COUNT = 11
   const EMOJIS = ['👏', '✋', '🎯', '👎', '🤔']
   const now = () => Date.now()
   const rid = () => Math.random().toString(36).slice(2, 10)
@@ -36,8 +36,8 @@
   class Host {
     constructor(code, hostPid) {
       this.r = {
-        code, host: hostPid, players: {}, seats: { judge: null, left: null, right: null }, phase: 'lobby', mode: 'written',
-        topic: '', turn: 0, turnEnd: 0, args: { left: '', right: '' }, voteEnd: 0, votes: {}, winner: null,
+        code, host: hostPid, players: {}, seats: { judge: null, left: null, right: null }, phase: 'lobby',
+        topic: '', turn: 0, turnEnd: 0, voteEnd: 0, votes: {}, winner: null,
         scores: {}, chat: [], react: {}
       }
       this.iv = setInterval(() => this.tick(), 500)
@@ -51,8 +51,8 @@
       const t = { left: 0, right: 0 }
       Object.values(r.votes).forEach(v => t[v]++)
       return {
-        code: r.code, host: r.host, seats: r.seats, phase: r.phase, mode: r.mode, topic: r.topic,
-        turn: r.turn, turnEnd: r.turnEnd, plan: PLAN, args: r.args, voteEnd: r.voteEnd,
+        code: r.code, host: r.host, seats: r.seats, phase: r.phase, topic: r.topic,
+        turn: r.turn, turnEnd: r.turnEnd, plan: PLAN, voteEnd: r.voteEnd,
         voted: Object.keys(r.votes).length, jury: this.jury().length, tally: done ? t : null, winner: r.winner,
         players: Object.values(r.players).map(({ id, name, avatar, connected }) => ({ id, name, avatar, connected })),
         scores: Object.values(r.scores), chat: r.chat, now: now()
@@ -66,7 +66,12 @@
       const r = this.r
       let p = r.players[pid]
       if (!p && Object.keys(r.players).length >= 40) return false
-      if (!p) p = r.players[pid] = { id: pid, avatar: AV[Math.random() * AV.length | 0] }
+      if (!p) {
+        const used = Object.values(r.players).map(x => x.avatar)
+        const open = Array.from({ length: AV_COUNT }, (_, i) => i).filter(i => !used.includes(i))
+        const pool = open.length ? open : Array.from({ length: AV_COUNT }, (_, i) => i)
+        p = r.players[pid] = { id: pid, avatar: pool[Math.random() * pool.length | 0] }
+      }
       p.name = clean(name, 16) || 'Misafir'
       p.connected = true; p.send = send; clearTimeout(p.t)
       this.push()
@@ -122,12 +127,6 @@
           if (!EMOJIS.includes(d) || seatedIds(r).includes(pid) || now() - (r.react[pid] || 0) < 2000) return
           r.react[pid] = now()
           this.all({ t: 'reaction', d: { id: rid(), emoji: d, name: p.name } }); return
-        case 'arg': {
-          const cur = PLAN[r.turn]
-          if (r.phase !== 'hearing' || r.mode !== 'written' || r.seats[cur.side] !== pid) return
-          r.args[cur.side] = String(d ?? '').slice(0, 1200)
-          this.all({ t: 'arg', d: { side: cur.side, text: r.args[cur.side], from: pid } }); return
-        }
         case 'seat':
           if (r.phase !== 'lobby' || !(d in r.seats) || (r.seats[d] && r.seats[d] !== pid)) return
           free(); r.seats[d] = pid; break
@@ -136,13 +135,12 @@
           if (!isM || r.phase !== 'lobby' || !d || !(d.role in r.seats) || !r.players[d.pid]) return
           for (const k in r.seats) if (r.seats[k] === d.pid) r.seats[k] = null
           r.seats[d.role] = d.pid; break
-        case 'mode': if (isM && (d === 'written' || d === 'voice')) r.mode = d; break
         case 'start': if (isJ && r.phase === 'lobby' && seatedIds(r).length === 3) { r.phase = 'topic'; r.topic = '' } break
         case 'topic': {
           const t = clean(d, 140)
           if (!isJ || r.phase !== 'topic' || !t) return
           r.topic = t; r.phase = 'hearing'; r.turn = 0; r.turnEnd = now() + PLAN[0].dur * 1000
-          r.args = { left: '', right: '' }; r.winner = null; break
+          r.winner = null; break
         }
         case 'skip': if (isJ && r.phase === 'hearing') this.advance(); break
         case 'addTime': if (isJ && r.phase === 'hearing') r.turnEnd += 15000; break
@@ -163,7 +161,7 @@
           if (!isM || r.phase !== 'verdict') return
           const q = r.seats
           r.seats = { judge: q.left, left: q.right, right: q.judge }
-          r.phase = 'lobby'; r.topic = ''; r.winner = null; r.votes = {}; r.args = { left: '', right: '' }; break
+          r.phase = 'lobby'; r.topic = ''; r.winner = null; r.votes = {}; break
         }
         case 'chat': {
           const text = clean(d, 200); if (!text) return
