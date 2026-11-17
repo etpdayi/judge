@@ -26,7 +26,7 @@
     { side: 'left', dur: 45, title: '2. Tur · Karşı atak: Savunma' },
     { side: 'right', dur: 45, title: '2. Tur · Karşı atak: Yargılayan' }
   ]
-  const AV_COUNT = 11
+  const AV_COUNT = 16
   const EMOJIS = ['👏', '✋', '🎯', '👎', '🤔']
   const now = () => Date.now()
   const rid = () => Math.random().toString(36).slice(2, 10)
